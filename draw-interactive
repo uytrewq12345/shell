@@ -1,0 +1,13 @@
+%matplotlib inline
+import matplotlib.pyplot as plt
+from ipywidgets import interact
+import numpy as np
+from PIL import Image
+
+def f(idx, k):
+    print("image_name:", image_list[idx])
+    print()
+    img = Image.open(image_list[idx])
+    plt.imshow(img)
+    plt.show()
+interact(f, idx=(0, len(image_list) - 1 ,1), k=(0, 10, 1) )
