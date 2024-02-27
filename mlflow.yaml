@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow-server
+  namespace: mlflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mlflow-server
+  template:
+    metadata:
+      labels:
+        app: mlflow-server
+    spec:
+      serviceAccountName: mlflow-service-account
+      volumes:
+      - name: secrets-store-inline
+        csi:
+          driver: secrets-store.csi.k8s.io
+          readOnly: true
+          volumeAttributes:
+            secretProviderClass: "mlflow-secrets"
+
+      containers:
+      - name: mlflow-server
+        image: <image>
+        ports:
+        - containerPort: 5000
+        # command: ["mlflow"]
+        command: ["sleep"]
+        args: [ "3600" ]               
+        volumeMounts:
+        - name: secrets-store-inline
+          mountPath: "/mnt/secrets-store"
+          readOnly: true
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlflow-service
+  namespace: mlflow
+spec:
+  ports:
+  - port: 5000
+    targetPort: 5000
+  selector:
+    app: mlflow-server
+
+---
+
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: mlflow-ingressroute
+  namespace: ingress
+spec:
+  entryPoints:
+    - web
+  routes:
+  - match: PathPrefix(`/mlflow`)
+    kind: Rule
+    services:
+    - name: mlflow-service
+      namespace: mlflow
+      port: 5000
+    middlewares:
+    - name: strip-mlflow-prefix
+
+---
+
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-mlflow-prefix
+  namespace: ingress
+spec:
+  stripPrefix:
+    prefixes:
+      - /mlflow
+    forceSlash: false
+
+
+---
+
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: mlflow-secrets
+  namespace: mlflow
+spec:
+  provider: aws
+  parameters:
+    objects: |
+      - objectName: "<secret-name>"
+        objectAlias: secrets
