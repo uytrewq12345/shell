@@ -10,11 +10,13 @@ spec:
         description: "S3バケット名 (s3://bucket-name/path)"
       - name: parallelism
         description: "並列実行数"
-        value: "10"  # ← デフォルト値を10に設定
+        value: "10"  # デフォルト値
+
   templates:
     - name: s3-sync
-      steps:
-        - - name: prepare-s3-list
+      dag:
+        tasks:
+          - name: prepare-s3-list
             template: prepare-s3-list
             arguments:
               parameters:
@@ -23,7 +25,7 @@ spec:
                 - name: parallelism
                   value: "{{workflow.parameters.parallelism}}"
 
-        - - name: sync-worker
+          - name: sync-worker
             template: sync-worker
             arguments:
               parameters:
@@ -31,6 +33,7 @@ spec:
                   value: "{{item}}"
                 - name: bucket
                   value: "{{workflow.parameters.bucket}}"
+            dependencies: [prepare-s3-list]
             withSequence:
               count: "{{workflow.parameters.parallelism}}"
 
