@@ -1,0 +1,79 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: s3-sync-template
+spec:
+  entrypoint: s3-sync
+  arguments:
+    parameters:
+      - name: bucket
+        description: "S3バケット名 (s3://bucket-name/path)"
+      - name: parallelism
+        description: "並列実行数"
+        value: "10"  # ← デフォルト値を10に設定
+  templates:
+    - name: s3-sync
+      steps:
+        - - name: prepare-s3-list
+            template: prepare-s3-list
+            arguments:
+              parameters:
+                - name: bucket
+                  value: "{{workflow.parameters.bucket}}"
+                - name: parallelism
+                  value: "{{workflow.parameters.parallelism}}"
+
+        - - name: sync-worker
+            template: sync-worker
+            arguments:
+              parameters:
+                - name: index
+                  value: "{{item}}"
+                - name: bucket
+                  value: "{{workflow.parameters.bucket}}"
+            withSequence:
+              count: "{{workflow.parameters.parallelism}}"
+
+    - name: prepare-s3-list
+      inputs:
+        parameters:
+          - name: bucket
+          - name: parallelism
+      script:
+        image: amazon/aws-cli
+        command: [sh]
+        source: |
+          set -e
+          mkdir -p /mnt/data/files
+          aws s3 ls {{inputs.parameters.bucket}} --recursive | awk '{print $4}' > /mnt/data/files/all_files.txt
+          split -n l/{{inputs.parameters.parallelism}} /mnt/data/files/all_files.txt /mnt/data/files/split_
+        volumeMounts:
+          - name: data-volume
+            mountPath: /mnt/data
+
+    - name: sync-worker
+      inputs:
+        parameters:
+          - name: index
+          - name: bucket
+      script:
+        image: amazon/aws-cli
+        command: [sh]
+        source: |
+          set -e
+          FILE_LIST=$(printf "/mnt/data/files/split_%02d" {{inputs.parameters.index}})
+          while read -r file; do
+            aws s3 cp "{{inputs.parameters.bucket}}/$file" "./$file"
+          done < "$FILE_LIST"
+        volumeMounts:
+          - name: data-volume
+            mountPath: /mnt/data
+
+  volumeClaimTemplates:
+    - metadata:
+        name: data-volume
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
